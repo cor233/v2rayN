@@ -3,7 +3,7 @@ name: 同步 Releases
 on:
   workflow_dispatch:
   schedule:
-    - cron: '5 0 * * *'   # 晚于代码同步，确保 tag 已存在
+    - cron: '0 0 * * *'
 
 jobs:
   sync-all-releases:
@@ -11,7 +11,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: 获取源仓库所有 Releases（按时间排序）
+      - name: 获取源仓库所有 Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -53,7 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TARGET_REPO="${{ github.repository }}"   # cor233/v2rayN
+          TARGET_REPO="${{ github.repository }}"
 
           jq -c '.[]' releases.json | while IFS= read -r release; do
             TAG_NAME=$(echo "$release" | jq -r '.tag_name')
