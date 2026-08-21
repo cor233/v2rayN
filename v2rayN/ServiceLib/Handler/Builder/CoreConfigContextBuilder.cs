@@ -49,6 +49,7 @@ public class CoreConfigContextBuilder
             RoutingItem = await ConfigHandler.GetDefaultRouting(config),
             IsWindows = Utils.IsWindows(),
             IsMacOS = Utils.IsMacOS(),
+            ProtectCoreTypeList = config.TunModeItem.EnableTun ? [ECoreType.Xray, ECoreType.sing_box] : []
         };
         var validatorResult = NodeValidatorResult.Empty();
         var (actNode, nodeValidatorResult) = await ResolveNodeAsync(context, node);
@@ -94,6 +95,7 @@ public class CoreConfigContextBuilder
                 context.AllProxiesMap[$"remark:{ruleItem.OutboundTag}"] = actRuleNode;
             }
         }
+
         if (context.IsTunEnabled && context.AppConfig.TunModeItem.RouteExcludeAddress is { Count: > 0 })
         {
             var appConfig = JsonUtils.DeepCopy(config);
@@ -201,7 +203,7 @@ public class CoreConfigContextBuilder
                 Context = preSocksResult.Context with
                 {
                     ProtectDomainList =
-                    [.. nodeContext.ProtectDomainList ?? [], .. preSocksResult.Context.ProtectDomainList ?? []],
+                    [.. nodeContext.ProtectDomainList, .. preSocksResult.Context.ProtectDomainList],
                     ProtectCoreTypeList = protectCoreTypeList,
                 },
             };
@@ -321,14 +323,14 @@ public class CoreConfigContextBuilder
         {
             return await RegisterGroupNodeAsync(context, node);
         }
-        return RegisterSingleNodeAsync(context, node);
+        return await RegisterSingleNodeAsync(context, node);
     }
 
     /// <summary>
     ///     Validates a single (non-group) node and, on success, adds it to the proxy map
     ///     and records any domain addresses that should bypass the proxy.
     /// </summary>
-    private static NodeValidatorResult RegisterSingleNodeAsync(CoreConfigContext context, ProfileItem node)
+    private static async Task<NodeValidatorResult> RegisterSingleNodeAsync(CoreConfigContext context, ProfileItem node)
     {
         if (node.ConfigType.IsGroupType())
         {
@@ -336,6 +338,29 @@ public class CoreConfigContextBuilder
         }
 
         var nodeValidatorResult = NodeValidator.Validate(node, context.RunCoreType);
+
+        if (node.ConfigType == EConfigType.Outbound)
+        {
+            var addressFileName = node.Address;
+            if (!File.Exists(addressFileName))
+            {
+                addressFileName = Utils.GetConfigPath(addressFileName);
+            }
+            if (!File.Exists(addressFileName))
+            {
+                nodeValidatorResult.Errors.Add(string.Format(ResUI.MsgCustomOutboundFileNotFound, node.Remarks, addressFileName));
+            }
+            try
+            {
+                var fileContent = await File.ReadAllTextAsync(addressFileName);
+                context.CustomOutboundContent[node.IndexId] = fileContent;
+            }
+            catch
+            {
+                nodeValidatorResult.Errors.Add(string.Format(ResUI.MsgCustomOutboundFileNotFound, node.Remarks, addressFileName));
+            }
+        }
+
         var msgs = new List<string>([.. nodeValidatorResult.Errors, .. nodeValidatorResult.Warnings]);
         if (msgs.Count > 0)
         {
@@ -359,7 +384,7 @@ public class CoreConfigContextBuilder
         {
             var echQuerySni = node.Sni;
             if (node.StreamSecurity == Global.StreamSecurity
-                && node.EchConfigList?.Contains("://") == true)
+                && node.EchConfigList.Contains("://"))
             {
                 var idx = node.EchConfigList.IndexOf('+');
                 echQuerySni = idx > 0 ? node.EchConfigList[..idx] : node.Sni;
@@ -437,7 +462,7 @@ public class CoreConfigContextBuilder
 
             if (!childNode.ConfigType.IsGroupType())
             {
-                var childNodeResult = RegisterSingleNodeAsync(context, childNode);
+                var childNodeResult = await RegisterSingleNodeAsync(context, childNode);
                 childNodeValidatorResult.Warnings.AddRange(childNodeResult.Warnings.Select(w =>
                     string.Format(ResUI.MsgGroupChildNodeWarning, node.Remarks, childNode.Remarks, w)));
                 childNodeValidatorResult.Errors.AddRange(childNodeResult.Errors.Select(e =>

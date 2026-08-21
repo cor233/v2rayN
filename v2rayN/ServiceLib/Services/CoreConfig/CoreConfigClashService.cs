@@ -1,9 +1,14 @@
+using YamlDotNet.Core;
+using YamlDotNet.RepresentationModel;
+
 namespace ServiceLib.Services.CoreConfig;
 
 /// <summary>
-/// Core configuration file processing class
+/// Core configuration file processing class.
+/// The TUN state is taken as a snapshot so the generated config always agrees
+/// with the launch elevation decision (see CoreManager.ShouldRunAsSudo).
 /// </summary>
-public class CoreConfigClashService(Config config)
+public class CoreConfigClashService(Config config, bool isTunEnabled)
 {
     private static readonly string _tag = "CoreConfigClashService";
 
@@ -102,7 +107,7 @@ public class CoreConfigClashService(Config config)
             }
 
             //enable tun mode
-            if (config.TunModeItem.EnableTun)
+            if (isTunEnabled)
             {
                 var tun = EmbedUtils.GetEmbedText(Global.ClashTunYaml);
                 if (tun.IsNotEmpty())
@@ -125,7 +130,27 @@ public class CoreConfigClashService(Config config)
                 Logging.SaveLog($"{_tag}-Mixin", ex);
             }
 
+            // Mihomo parses plain values such as 815458e4 as floats, so quote REALITY short IDs.
+            var originalRealityShortIds = new List<(Dictionary<object, object> RealityOptions, string ShortId)>();
+            if (fileContent.GetValueOrDefault("proxies") is List<object> proxies)
+            {
+                foreach (var proxy in proxies.OfType<Dictionary<object, object>>())
+                {
+                    if (proxy.GetValueOrDefault("reality-opts") is Dictionary<object, object> realityOptions
+                        && realityOptions.GetValueOrDefault("short-id") is string shortId
+                        && !shortId.StartsWith(tagYamlStr2, StringComparison.Ordinal))
+                    {
+                        originalRealityShortIds.Add((realityOptions, shortId));
+                        realityOptions["short-id"] = new YamlScalarNode(shortId) { Style = ScalarStyle.DoubleQuoted };
+                    }
+                }
+            }
+
             var txtFileNew = YamlUtils.ToYaml(fileContent).Replace(tagYamlStr2, tagYamlStr3);
+            foreach (var (realityOptions, shortId) in originalRealityShortIds)
+            {
+                realityOptions["short-id"] = shortId;
+            }
             await File.WriteAllTextAsync(fileName, txtFileNew);
             //check again
             if (!File.Exists(fileName))
@@ -171,7 +196,7 @@ public class CoreConfigClashService(Config config)
         }
         foreach (var item in mixinContent)
         {
-            if (!config.TunModeItem.EnableTun && item.Key == "tun")
+            if (!isTunEnabled && item.Key == "tun")
             {
                 continue;
             }
