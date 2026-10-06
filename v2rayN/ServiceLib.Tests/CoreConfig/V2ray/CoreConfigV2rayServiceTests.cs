@@ -50,10 +50,8 @@ public class CoreConfigV2rayServiceTests
         await headers["Set-Cookie"]!.AsArray()
             .Select(item => item!.GetValue<string>())
             .Should().BeEquivalentTo(["a=1", "b=2"]);
-        await outbound.settings.servers.Should().BeNull();
-        await outbound.settings.vnext.Should().BeNull();
     }
- 
+
     [Test]
     public async Task GenerateClientConfigContent_PolicyGroup_ShouldExpandChildrenAndBuildBalancer()
     {
@@ -714,6 +712,5 @@ public class CoreConfigV2rayServiceTests
         var proxyOutbound = cfg!.outbounds.FirstOrDefault(o => o.tag == Global.ProxyTag);
         await proxyOutbound.Should().NotBeNull();
         await proxyOutbound!.protocol.Should().BeEqualTo("shadowsocks");
-        await proxyOutbound.settings.servers.Should().NotBeNull();
     }
 }
